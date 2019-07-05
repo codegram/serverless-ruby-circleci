@@ -3,22 +3,20 @@ version: 2.1
 description: |
   An orb to test, build and deploy Ruby serverless applications using the serverless framework and AWS. You need to add the AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables to CIrcleCI.
 
-orbs:
-  serverless-ruby:
 examples:
   main:
     description: Uses RSpec to run your tests (you need to add `rspec_junit_formatter` to your test group at the Gemfile) and deploys your service when a commit is merged at master.
     usage:
       orbs:
-        serverless-ruby: codegram/serverless-ruby@x.y.z
+        serverless-ruby: codegram/serverless-ruby@0.0.2
       version: 2.1
       workflows:
         main:
           jobs:
-            - test
-            - deploy:
+            - serverless-ruby/test
+            - serverless-ruby/deploy:
                 requires:
-                  - test
+                  - serverless-ruby/test
                 filters:
                   branches:
                     only: master
@@ -142,7 +140,7 @@ commands:
           destination: test-results
 
   serverless_deploy:
-    description: Deploys service using the Serverless framework
+    description: Deploys your service using the Serverless framework
     parameters:
       stage:
         type: string

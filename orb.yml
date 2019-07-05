@@ -110,7 +110,7 @@ commands:
           key: << parameters.cache_key >>-{{ checksum "package.json" }}
       - run:
           name: Install DynamoDB local
-          command: npm run db:install
+          command: (npm ls | grep serverless-dynamodb-local) && npx sls dynamodb install || echo "Skiping dynamodb local"
       - save_cache:
           paths:
             - ~/repo/.dynamodb
@@ -122,7 +122,7 @@ commands:
       - run:
           name: Run tests
           command: |
-            npm run db:start
+            (npm ls | grep serverless-dynamodb-local) && npx sls dynamodb start || echo "Skipping dynamodb local"
             mkdir /tmp/test-results
             TEST_FILES="$(circleci tests glob "spec/**/*_spec.rb" | \
               circleci tests split --split-by=timings)"

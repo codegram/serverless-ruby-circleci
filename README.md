@@ -10,7 +10,7 @@ Here's an example to test, build & deploy a Serverless Ruby application.
 version: 2.1
 
 orbs:
-  serverless-ruby: codegram/serverless-ruby@0.0.2
+  serverless-ruby: codegram/serverless-ruby@0.0.3
 
 workflows:
   main:
@@ -28,7 +28,7 @@ This orb has some assumptions:
 
 1. Your whole test suite can be executed with `bundle exec rspec`
 2. You're using the Serverless framework
-3. You're using DynamoDB (via DynamoDB local) as a database
+3. If you need DynamoDB, it installs it checking the presence of `serverless-dynamodb-local` plugin
 
 Before using it, make sure to:
 
@@ -52,7 +52,6 @@ circleci orb publish orb.yml codegram/serverless-ruby@dev:0.0.X
 ```
 
 When you're sure everything works OK you can publish a production version with:
-
 
 ```
 circleci orb publish orb.yml codegram/serverless-ruby@0.0.X

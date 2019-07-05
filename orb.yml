@@ -1,0 +1,172 @@
+version: 2.1
+
+description: |
+  An orb to test, build and deploy Ruby serverless applications using the serverless framework and AWS. You need to add the AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables to CIrcleCI.
+
+orbs:
+  serverless-ruby:
+examples:
+  main:
+    description: Uses RSpec to run your tests (you need to add `rspec_junit_formatter` to your test group at the Gemfile) and deploys your service when a commit is merged at master.
+    usage:
+      orbs:
+        serverless-ruby: codegram/serverless-ruby@x.y.z
+      version: 2.1
+      workflows:
+        main:
+          jobs:
+            - test
+            - deploy:
+                requires:
+                  - test
+                filters:
+                  branches:
+                    only: master
+
+executors:
+  ruby:
+    docker:
+      - image: circleci/ruby:2.5.5-node-browsers
+    working_directory: ~/repo
+
+commands:
+  ruby_development_dependencies:
+    description: "Installs Ruby dependencies and keeps a cache"
+    parameters:
+      bundler_version:
+        type: string
+        default: 2.0.2
+      cache_key:
+        type: string
+        default: bundler
+    steps:
+      - restore_cache:
+          key: << parameters.cache_key >>-{{ checksum "Gemfile.lock" }}
+      - run:
+          name: Install Ruby dependencies
+          command: |
+            gem install bundler -v "<< parameters.bundler_version >>" --no-document --no-post-install-message
+            bundle install --path vendor/bundle
+      - save_cache:
+          key: << parameters.cache_key >>-{{ checksum "Gemfile.lock" }}
+          paths:
+            - ~/repo/vendor/bundle
+
+  ruby_deployment_dependencies:
+    description: "Installs Ruby dependencies for deployment using LambCI and keeps a cache"
+    parameters:
+      bundler_version:
+        type: string
+        default: 2.0.2
+      cache_key:
+        type: string
+        default: bundler-deployment
+      lambci_image:
+        type: string
+        default: build-ruby2.5
+    steps:
+      - restore_cache:
+          key: << parameters.cache_key >>-{{ checksum "Gemfile.lock" }}
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - run:
+          name: Install Ruby dependencies for deployment
+          command: |
+            mkdir -p vendor/bundle
+            docker create -v /var/task --name bundler alpine:3.4 /bin/true
+            docker cp Gemfile bundler:/var/task
+            docker cp Gemfile.lock bundler:/var/task
+            docker cp vendor bundler:/var/task
+            docker run --name bundler-deployment --volumes-from bundler lambci/lambda:<< parameters.lambci_image >> /bin/bash -c "gem install bundler -v=<< parameters.bundler_version >> --no-document --silent && bundle install --deployment --without=test:development -j 4 --quiet --path=/var/tasks/vendor/bundle"
+            docker cp bundler-deployment:/var/tasks/vendor .
+      - save_cache:
+          key: << parameters.cache_key >>-{{ checksum "Gemfile.lock" }}
+          paths:
+            - ~/repo/vendor/bundle
+
+  node_dependencies:
+    description: "Installs Node dependencies and keeps a cache"
+    parameters:
+      cache_key:
+        type: string
+        default: npm
+    steps:
+      - restore_cache:
+          key: << parameters.cache_key >>-{{ checksum "package.json" }}
+      - run:
+          name: Install Node dependencies
+          command: npm install --no-audit --ignore-scripts
+      - save_cache:
+          paths:
+            - ~/repo/node_modules
+          key: << parameters.cache_key >>-{{ checksum "package.json" }}
+
+  dynamodb_local:
+    description: "Installs DynamoDB local and keeps a cache"
+    parameters:
+      cache_key:
+        type: string
+        default: dynamodb-local
+    steps:
+      - restore_cache:
+          key: << parameters.cache_key >>-{{ checksum "package.json" }}
+      - run:
+          name: Install DynamoDB local
+          command: npm run db:install
+      - save_cache:
+          paths:
+            - ~/repo/.dynamodb
+          key: << parameters.cache_key >>-{{ checksum "package.json" }}
+
+  tests:
+    description: "Runs RSpec test suite and uploads tests results"
+    steps:
+      - run:
+          name: Run tests
+          command: |
+            npm run db:start
+            mkdir /tmp/test-results
+            TEST_FILES="$(circleci tests glob "spec/**/*_spec.rb" | \
+              circleci tests split --split-by=timings)"
+
+            bundle exec rspec \
+              --format progress \
+              --format RspecJunitFormatter \
+              --out /tmp/test-results/rspec.xml \
+              --format progress \
+              $TEST_FILES
+      - store_test_results:
+          path: /tmp/test-results
+      - store_artifacts:
+          path: /tmp/test-results
+          destination: test-results
+
+  serverless_deploy:
+    description: Deploys service using the Serverless framework
+    parameters:
+      stage:
+        type: string
+        default: prod
+    steps:
+      - run:
+          name: Deploy
+          command: npx sls deploy -s << parameters.stage >>
+
+jobs:
+  test:
+    executor: ruby
+    description: "Installs all the dependencies (including DynamoDB local) and runs the test suite with RSpec"
+    steps:
+      - checkout
+      - ruby_development_dependencies
+      - node_dependencies
+      - dynamodb_local
+      - tests
+  deploy:
+    executor: ruby
+    description: "Install the minimal dependencies for deployment and deploys your service with the Serverless framework. It uses the same environment as AWS to install Ruby gems so gems with native extensions are correctly compiled."
+    steps:
+      - checkout
+      - ruby_deployment_dependencies
+      - node_dependencies
+      - serverless_deploy
